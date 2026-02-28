@@ -4,18 +4,20 @@ const cors = require('cors');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 require('dotenv').config();
 
-// 1. Initialize Firebase Admin
-// Inside index.js
-const admin = require('./utils/keyConvert'); // This now automatically handles the Base64 decoding
+// 1. Initialize Firebase Admin (Handles Base64 decoding automatically)
+const admin = require('./utils/keyConvert'); 
+
+// 2. Import Custom Middleware
+const verifyToken = require('./middleware/verifyToken');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 2. Global Middleware
+// 3. Global Middleware
 app.use(cors());
 app.use(express.json());
 
-// 3. MongoDB Connection Setup
+// 4. MongoDB Connection Setup
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3l2kzzv.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -31,28 +33,39 @@ async function run() {
     await client.connect();
     console.log("🍃 Successfully connected to MongoDB!");
 
-    // Set up Database and Collections here
+    // Set up Database and Collections
     const db = client.db("myApplicationDB");
     const usersCollection = db.collection("users");
     const productsCollection = db.collection("products");
 
     // ==========================================
-    // API ROUTES GO HERE
+    // API ROUTES
     // ==========================================
 
-    // Basic Health Check Route
+    // Basic Health Check Route (Public)
     app.get('/', (req, res) => {
-      res.send('Server is up and running...');
+      res.send('Server is up and running securely...');
     });
 
-    // Example Route: Get all users
-    app.get('/api/users', async (req, res) => {
+    // Example Route: Get all products (Public - anyone can view products)
+    app.get('/api/products', async (req, res) => {
+      const result = await productsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Example Route: Get all users (Protected - only logged-in users can view this)
+    // We insert `verifyToken` right before the async route handler
+    app.get('/api/users', verifyToken, async (req, res) => {
+      // Because verifyToken passed, we know the user is authenticated
+      // req.user contains the decoded Firebase token payload
+      console.log("Authenticated request made by:", req.user.email);
+      
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
 
   } finally {
-    // Keep the connection open for persistent backend
+    // Keep the connection open for persistent backend operations
     // await client.close(); 
   }
 }
@@ -60,7 +73,7 @@ async function run() {
 // Run the MongoDB connection function
 run().catch(console.dir);
 
-// 4. Start the Express Server
+// 5. Start the Express Server
 app.listen(port, () => {
   console.log(`🚀 Server is listening on port ${port}`);
 });
