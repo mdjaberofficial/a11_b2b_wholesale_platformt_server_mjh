@@ -5,20 +5,14 @@ const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb'); 
 require('dotenv').config();
 
-// 1. Initialize Firebase Admin (Handles Base64 decoding automatically)
-const admin = require('./utils/keyConvert'); 
-
-// 2. Import Custom Middleware
-const verifyToken = require('./middleware/verifyToken');
-
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 3. Global Middleware
+// 1. Global Middleware
 app.use(cors());
 app.use(express.json());
 
-// 4. MongoDB Connection Setup
+// 2. MongoDB Connection Setup
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3l2kzzv.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -44,9 +38,9 @@ async function run() {
     // API ROUTES
     // ==========================================
 
-    // Basic Health Check Route (Public)
+    // Basic Health Check Route
     app.get('/', (req, res) => {
-      res.send('B2B Wholesale Server is up and running securely...');
+      res.send('B2B Wholesale Server is up and running (Public Mode)...');
     });
 
 
@@ -54,29 +48,30 @@ async function run() {
     // PRODUCTS MANAGEMENT ROUTES
     // ==========================================
 
-    // 1. Get all products (Public - anyone can view products)
+    // 1. Get all products
     app.get('/api/products', async (req, res) => {
       const result = await productsCollection.find().toArray();
       res.send(result);
     });
 
-    // 2. Get a single product by ID (Protected)
-    app.get('/api/products/:id', verifyToken, async (req, res) => {
+    // 2. Get a single product by ID
+    app.get('/api/products/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await productsCollection.findOne(query);
       res.send(result);
     });
 
-    // 3. Add a new product (Protected)
-    app.post('/api/products', verifyToken, async (req, res) => {
-      const newProduct = req.body;
-      const result = await productsCollection.insertOne(newProduct);
-      res.send(result);
+    // 3. Add a new product
+    app.post('/api/products', async (req, res) => {
+        const product = req.body;
+        // Fixed: changed productCollection to productsCollection
+        const result = await productsCollection.insertOne(product);
+        res.send(result);
     });
 
-    // 4. Update an existing product (Protected)
-    app.put('/api/products/:id', verifyToken, async (req, res) => {
+    // 4. Update an existing product
+    app.put('/api/products/:id', async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const options = { upsert: false };
@@ -100,22 +95,19 @@ async function run() {
       res.send(result);
     });
 
-    // 5. Get products listed by a specific seller (Protected)
-    app.get('/api/my-products', verifyToken, async (req, res) => {
+    // 5. Get products listed by a specific seller (via query param)
+    app.get('/api/my-products', async (req, res) => {
       const email = req.query.email;
-      
-      // Ensure the JWT token email matches the requested email
-      if (req.user.email !== email) {
-        return res.status(403).send({ message: 'Forbidden access' });
+      if (!email) {
+        return res.status(400).send({ message: 'Email query parameter is required' });
       }
-
       const query = { sellerEmail: email };
       const result = await productsCollection.find(query).toArray();
       res.send(result);
     });
 
-    // 6. Delete a specific product (Protected)
-    app.delete('/api/products/:id', verifyToken, async (req, res) => {
+    // 6. Delete a specific product
+    app.delete('/api/products/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await productsCollection.deleteOne(query);
@@ -124,11 +116,11 @@ async function run() {
 
 
     // ==========================================
-    // CART & CHECKOUT ROUTES (Inventory Math)
+    // CART & CHECKOUT ROUTES
     // ==========================================
 
     // 1. Add to cart & DECREMENT main_quantity
-    app.post('/api/cart', verifyToken, async (req, res) => {
+    app.post('/api/cart', async (req, res) => {
       const cartItem = req.body;
       
       // Step A: Insert into Cart collection
@@ -145,23 +137,20 @@ async function run() {
     });
 
     // 2. Get cart items by user email
-    app.get('/api/cart', verifyToken, async (req, res) => {
+    app.get('/api/cart', async (req, res) => {
       const email = req.query.email;
-      
-      if (req.user.email !== email) {
-        return res.status(403).send({ message: 'Forbidden access' });
+      if (!email) {
+        return res.status(400).send({ message: 'Email query parameter is required' });
       }
-
       const query = { buyerEmail: email };
       const result = await cartCollection.find(query).toArray();
       res.send(result);
     });
 
     // 3. Delete from cart & RESTORE main_quantity
-    app.delete('/api/cart/:id', verifyToken, async (req, res) => {
+    app.delete('/api/cart/:id', async (req, res) => {
       const id = req.params.id;
       
-      // Step A: Find the exact cart item to know how much quantity to restore
       const cartQuery = { _id: new ObjectId(id) };
       const cartItem = await cartCollection.findOne(cartQuery);
       
@@ -169,10 +158,8 @@ async function run() {
         return res.status(404).send({ message: "Cart item not found" });
       }
 
-      // Step B: Delete from the cart
       const deleteResult = await cartCollection.deleteOne(cartQuery);
 
-      // Step C: Increment the stock back into the main Products collection
       const filter = { _id: new ObjectId(cartItem.productId) };
       const updateDoc = {
         $inc: { main_quantity: cartItem.purchaseQuantity }
@@ -187,22 +174,18 @@ async function run() {
     // USER ROUTES
     // ==========================================
 
-    // Example Route: Get all users (Protected)
-    app.get('/api/users', verifyToken, async (req, res) => {
+    app.get('/api/users', async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
 
   } finally {
-    // Keep the connection open for persistent backend operations
-    // await client.close(); 
+    // Keep connection open
   }
 }
 
-// Run the MongoDB connection function
 run().catch(console.dir);
 
-// Start the Express Server
 app.listen(port, () => {
   console.log(`🚀 Server is listening on port ${port}`);
 });
